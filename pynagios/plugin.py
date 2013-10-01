@@ -6,7 +6,7 @@ which should be subclassed when creating new plugins.
 
 import sys
 from copy import copy
-from optparse import Option, OptionParser, make_option
+from options import Option, OptionGroup, OptionParser, make_option, OptionConflictError
 from range import Range, RangeValueError
 from response import Response
 from status import Status
@@ -43,28 +43,44 @@ class PluginMeta(type):
 
         # Set the options on the plugin by finding all the Options and
         # setting them. This also removes the original Option attributes.
-        options = []
+        global_options = []
+        groups = []
+
+        option_parser = OptionParser()
 
         for key,val in attrs.items():
-            if isinstance(val, Option):
+            if key == "_usage":
+                option_parser.set_usage(val)
+                del attrs[key]
+            elif isinstance(val, Option):
                 # We set the destination of the Option to always be the
                 # attribute key...
                 val.dest = key
 
                 # Append it to the list of options and delete it from
                 # the original attributes list
-                options.append(val)
+                global_options.append(val)
                 del attrs[key]
+            elif isinstance(val, OptionGroup):
+                groups.append(val.get_option_group(option_parser))
 
         # Need to iterate through the bases in order to extract the
         # list of parent options, so we can inherit those.
         for base in bases:
             if hasattr(base, "_options"):
-                options.extend(getattr(base, "_options"))
+                global_options.extend(getattr(base, "_options"))
+
+        for option in global_options:
+            try:
+                option_parser.add_option(option)
+            except OptionConflictError:
+                pass
+        for group in groups:
+            option_parser.add_option_group(group)
 
         # Store the option list and create the option parser
-        attrs["_options"] = options
-        attrs["_option_parser"] = OptionParser(option_list=options)
+        attrs["_option_parser"] = option_parser
+        attrs["_options"] = global_options
 
         # Create the class
         return super(PluginMeta, cls).__new__(cls, name, bases, attrs)
